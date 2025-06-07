@@ -10,13 +10,20 @@
     "test": "jest"
   },
   "dependencies": {
+    "@shopify/react-native-skia": "^2.0.3",
+    "loro-react-native": "1.5.0-alpha.4",
     "react": "19.0.0",
-    "react-native": "0.79.3"
+    "react-native": "0.79.3",
+    "react-native-gesture-handler": "^2.25.0",
+    "react-native-reanimated": "^3.18.0",
+    "react-native-signature-canvas": "^4.7.4",
+    "react-native-webview": "^13.14.2",
+    "rn-perfect-sketch-canvas": "^0.3.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@babel/preset-env": "^7.25.3",
-    "@babel/runtime": "^7.25.0",
+    "@babel/runtime": "^7.25.6",
     "@react-native-community/cli": "18.0.0",
     "@react-native-community/cli-platform-android": "18.0.0",
     "@react-native-community/cli-platform-ios": "18.0.0",
