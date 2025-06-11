@@ -23,6 +23,7 @@ import { Cursor, EphemeralEventTrigger, EphemeralStore, EventTriggerKind, LoroDo
 import WebSocketClient, { base64ToUint8Array } from './websocket-client';
 
 const { width, height } = Dimensions.get('window');
+const color = Platform.OS === 'android' ? '#3DDC84' : '#007AFF';
 
 // Highlight interface
 interface Highlight {
@@ -30,10 +31,12 @@ interface Highlight {
   end: number;
   color: string;
   id: string;
+  type: 'highlight' | 'cursor'; // Add cursor type
+  userName?: string; // Add userName field for remote cursors
 }
 
 const document = new LoroDoc();
-const ephemeralStore = new EphemeralStore(30000n);
+const ephemeralStore = new EphemeralStore(BigInt(30000));
 const client = new WebSocketClient();
 client.connect();
 
@@ -53,8 +56,14 @@ function App(): React.JSX.Element {
       document.import_(base64ToUint8Array(msg.update));
     })
     client.on('ephemeral', (msg) => {
-      //@ts-ignore
-      ephemeralStore.apply(base64ToUint8Array(msg.update));
+      try {
+        console.log("ephemeral", msg.update, base64ToUint8Array(msg.update));
+        if (msg.update.length === 0) return;
+        //@ts-ignore
+        ephemeralStore.apply(base64ToUint8Array(msg.update));
+      } catch (e) {
+        console.error(e);
+      }
     })
     // Subscribe to document changes
     const unsubscribe = document.subscribe(text.id(), (e) => {
@@ -81,12 +90,14 @@ function App(): React.JSX.Element {
           const remote = changeIds[0];
           const remoteEphemeral = ephemeralStore.get(remote);
           if (!remoteEphemeral) return;
-          const remoteValue = loroValueToJsValue(remoteEphemeral)
+          const remoteValue = loroValueToJsValue(remoteEphemeral) as any
+          if (!remoteValue) return;
           const startCursor = Cursor.decode(remoteValue["start"])
           const endCursor = Cursor.decode(remoteValue["end"])
+          const userName = remoteValue["userName"] || `User-${remote.slice(0, 6)}`; // Extract userName or generate default
           const start = document.getCursorPos(startCursor).current.pos;
           const end = document.getCursorPos(endCursor).current.pos;
-          setRemoteHighlight(start, end)
+          setRemoteHighlight(start, end, userName)
         }
       }
     );
@@ -109,19 +120,43 @@ function App(): React.JSX.Element {
   };
 
   // Function to add highlight
-  const setRemoteHighlight = (start: number, end: number) => {
-    console.log("setRemoteHighlight", start, end);
-    const color = Platform.OS === 'android' ? '#ffeb3b' : '#ff0000';
-    if (start >= end || start < 0 || end > content.length) {
-      setHighlights(null);
-      return
-    };
+  const setRemoteHighlight = (start: number, end: number, userName?: string) => {
+    console.log("setRemoteHighlight", start, end, userName);
 
+    // Handle invalid positions
+    if (start < 0 || end < 0 || start > content.length || end > content.length) {
+      setHighlights(null);
+      return;
+    }
+
+    // When start === end, show cursor
+    if (start === end) {
+      const newCursor: Highlight = {
+        id: `cursor_${Date.now()}_${Math.random()}`,
+        start,
+        end,
+        color: '#ff6b6b', // Different color for cursor
+        type: 'cursor',
+        userName: userName || 'Remote User', // Add userName to cursor
+      };
+      setHighlights(newCursor);
+      return;
+    }
+
+    // When start > end, clear highlights
+    if (start > end) {
+      setHighlights(null);
+      return;
+    }
+
+    // Normal highlight case
     const newHighlight: Highlight = {
       id: `highlight_${Date.now()}_${Math.random()}`,
       start,
       end,
       color,
+      type: 'highlight',
+      userName: userName, // Add userName to highlight as well
     };
 
     setHighlights(newHighlight);
@@ -133,6 +168,43 @@ function App(): React.JSX.Element {
       return <Text style={styles.hiddenText}>{content}</Text>;
     }
 
+    // Handle cursor display
+    if (highlights.type === 'cursor') {
+      const beforeCursor = content.slice(0, highlights.start);
+      const afterCursor = content.slice(highlights.start);
+
+      // Calculate line and column position for better positioning
+      const textBeforeCursor = content.slice(0, highlights.start);
+      const lines = textBeforeCursor.split('\n');
+      const currentLine = lines.length - 1;
+      const currentColumn = lines[lines.length - 1].length;
+
+      return (
+        <View style={styles.hiddenText}>
+          <Text style={styles.hiddenText}>
+            {beforeCursor}
+            <Text style={[styles.remoteCursor, { backgroundColor: color }]}> </Text>
+            {afterCursor}
+          </Text>
+          {highlights.userName && (
+            <Text
+              style={[
+                styles.userNameTag,
+                {
+                  color: color, // Use same color as cursor
+                  left: Math.min(currentColumn * 9 + 22, width - 100), // Account for editor padding and prevent overflow
+                  top: (currentLine + 1) * 24 + 18, // Position one line below with padding offset
+                }
+              ]}
+            >
+              {highlights.userName}
+            </Text>
+          )}
+        </View>
+      );
+    }
+
+    // Handle highlight display
     const segments = [];
     let lastIndex = 0;
 
@@ -229,7 +301,8 @@ function App(): React.JSX.Element {
                 map.set("end", new LoroValue.Binary({
                   value: endCursor.encode()
                 }));
-                ephemeralStore.set(document.peerId.toString(), {
+                map.set("userName", new LoroValue.String({ value: Platform.OS })); // Add local user name
+                ephemeralStore.set(document.peerId().toString(), {
                   asLoroValue: () => {
                     return new LoroValue.Map({
                       value: map
@@ -477,6 +550,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     fontStyle: 'italic',
+  },
+  remoteCursor: {
+    fontSize: 16,
+    lineHeight: 24,
+    width: 1,
+    marginLeft: -0.5,
+    marginRight: -0.5,
+    opacity: 0.4,
+  },
+  userNameTag: {
+    position: 'absolute',
+    fontSize: 12,
+    fontWeight: '300',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 3,
+    overflow: 'hidden',
+    minWidth: 20,
+    textAlign: 'center',
   },
 });
 
