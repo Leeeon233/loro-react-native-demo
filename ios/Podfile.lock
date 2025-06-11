@@ -8,6 +8,31 @@ PODS:
   - hermes-engine (0.79.3):
     - hermes-engine/Pre-built (= 0.79.3)
   - hermes-engine/Pre-built (0.79.3)
+  - loro-react-native (1.5.0-alpha.5):
+    - DoubleConversion
+    - glog
+    - hermes-engine
+    - RCT-Folly (= 2024.11.18.00)
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-hermes
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - uniffi-bindgen-react-native (= 0.28.3-5)
+    - Yoga
   - RCT-Folly (2024.11.18.00):
     - boost
     - DoubleConversion
@@ -1655,6 +1680,8 @@ PODS:
     - React-perflogger (= 0.79.3)
     - React-utils (= 0.79.3)
   - SocketRocket (0.7.1)
+  - uniffi-bindgen-react-native (0.28.3-5):
+    - React-Core
   - Yoga (0.0.0)
 
 DEPENDENCIES:
@@ -1665,6 +1692,7 @@ DEPENDENCIES:
   - fmt (from `../node_modules/react-native/third-party-podspecs/fmt.podspec`)
   - glog (from `../node_modules/react-native/third-party-podspecs/glog.podspec`)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
+  - loro-react-native (from `../node_modules/loro-react-native`)
   - RCT-Folly (from `../node_modules/react-native/third-party-podspecs/RCT-Folly.podspec`)
   - RCT-Folly/Fabric (from `../node_modules/react-native/third-party-podspecs/RCT-Folly.podspec`)
   - RCTDeprecation (from `../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)
@@ -1734,6 +1762,7 @@ DEPENDENCIES:
 SPEC REPOS:
   trunk:
     - SocketRocket
+    - uniffi-bindgen-react-native
 
 EXTERNAL SOURCES:
   boost:
@@ -1751,6 +1780,8 @@ EXTERNAL SOURCES:
   hermes-engine:
     :podspec: "../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec"
     :tag: hermes-2025-06-04-RNv0.79.3-7f9a871eefeb2c3852365ee80f0b6733ec12ac3b
+  loro-react-native:
+    :path: "../node_modules/loro-react-native"
   RCT-Folly:
     :podspec: "../node_modules/react-native/third-party-podspecs/RCT-Folly.podspec"
   RCTDeprecation:
@@ -1886,6 +1917,7 @@ SPEC CHECKSUMS:
   fmt: a40bb5bd0294ea969aaaba240a927bd33d878cdd
   glog: 5683914934d5b6e4240e497e0f4a3b42d1854183
   hermes-engine: 94ed01537bdeccaab1adbf94b040d115d6fa1a7f
+  loro-react-native: 7f3fb121cd78c0016a99617d6bedb08f6c6f39c9
   RCT-Folly: 36fe2295e44b10d831836cc0d1daec5f8abcf809
   RCTDeprecation: c3e3f5b4ea83e7ff3bc86ce09e2a54b7affd687d
   RCTRequired: ee438439880dffc9425930d1dd1a3c883ee6879c
@@ -1946,9 +1978,10 @@ SPEC CHECKSUMS:
   React-timing: 4e298a80e9a41c31d884df0422c9eb73a240ec0d
   React-utils: f2cfe205e3206aac6a263ce749f5ddb62d0b238d
   ReactAppDependencyProvider: 552391af67c115d8ee20f9359711e7821145cd96
-  ReactCodegen: 2348a1952a49336e1b94481671f97502ae56c046
+  ReactCodegen: dd01294deadf911ce9d6dd61d9c3dbaf91ba6b0d
   ReactCommon: b7062f81f6ea61ec29e03aab1d439fb56c49372c
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
+  uniffi-bindgen-react-native: 018090e6c342b31e1189eb4d098860e9d44caa86
   Yoga: 29f74a5b77dca8c37669e1e1e867e5f4e12407df
 
 PODFILE CHECKSUM: 3b5c60b0f9e995412055965996e2b202c1c1b0ca

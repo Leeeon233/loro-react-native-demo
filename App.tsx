@@ -12,136 +12,179 @@ import {
   TextInput,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   SafeAreaView,
   StatusBar,
   Alert,
   Dimensions,
+  TouchableOpacity,
+  Platform,
 } from 'react-native';
-import RichTextEditor from './RichTextEditor';
-import { MockLoroDoc } from './LoroTypes';
+import { Cursor, EphemeralEventTrigger, EphemeralStore, EventTriggerKind, LoroDoc, LoroValue, loroValueToJsValue, Side, UpdateOptions } from 'loro-react-native';
+import WebSocketClient, { base64ToUint8Array } from './websocket-client';
 
 const { width, height } = Dimensions.get('window');
 
+// Highlight interface
+interface Highlight {
+  start: number;
+  end: number;
+  color: string;
+  id: string;
+}
+
+const document = new LoroDoc();
+const ephemeralStore = new EphemeralStore(30000n);
+const client = new WebSocketClient();
+client.connect();
+
 function App(): React.JSX.Element {
-  const [document] = useState(() => new MockLoroDoc());
   const [content, setContent] = useState('');
   const [cursorPosition, setCursorPosition] = useState(0);
   const [isCollaborative, setIsCollaborative] = useState(false);
   const [docSize, setDocSize] = useState(0);
-  const [showRichEditor, setShowRichEditor] = useState(false);
-  const [history, setHistory] = useState<string[]>([]);
+  const [highlights, setHighlights] = useState<Highlight | null>(null);
+  const [selection, setSelection] = useState({ start: 0, end: 0 });
   const textInputRef = useRef<TextInput>(null);
-  const text = document.getText();
+  const text = document.getText('text');
 
   useEffect(() => {
+    client.on('doc', (msg) => {
+      //@ts-ignore
+      document.import_(base64ToUint8Array(msg.update));
+    })
+    client.on('ephemeral', (msg) => {
+      //@ts-ignore
+      ephemeralStore.apply(base64ToUint8Array(msg.update));
+    })
     // Subscribe to document changes
-    const unsubscribe = document.subscribe(() => {
+    const unsubscribe = document.subscribe(text.id(), (e) => {
       const newContent = text.toString();
       setContent(newContent);
       setDocSize(newContent.length);
-
-      // Keep history for demonstration
-      setHistory(prev => [...prev.slice(-4), newContent]);
     });
 
-    return unsubscribe;
+    const docUpdateSub = document.subscribeLocalUpdate((update) => {
+      client.sendDoc("demo", new Uint8Array(update));
+    })
+
+    const ephemeralUpdateSub = ephemeralStore.subscribeLocalUpdate({
+      onEphemeralUpdate: (update) => {
+        client.sendEphemeral("demo", new Uint8Array(update))
+      }
+    })
+
+    const ephemeralSub = ephemeralStore.subscribe(
+      {
+        onEphemeralEvent: (event) => {
+          if (event.by !== EphemeralEventTrigger.Import) return;
+          const changeIds = event.added.concat(event.updated);
+          const remote = changeIds[0];
+          const remoteEphemeral = ephemeralStore.get(remote);
+          if (!remoteEphemeral) return;
+          const remoteValue = loroValueToJsValue(remoteEphemeral)
+          const startCursor = Cursor.decode(remoteValue["start"])
+          const endCursor = Cursor.decode(remoteValue["end"])
+          const start = document.getCursorPos(startCursor).current.pos;
+          const end = document.getCursorPos(endCursor).current.pos;
+          setRemoteHighlight(start, end)
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe.unsubscribe();
+      docUpdateSub.unsubscribe();
+      ephemeralSub.unsubscribe();
+      ephemeralUpdateSub.unsubscribe();
+      client.removeAllListeners();
+    }
   }, [document, text]);
 
   const handleTextChange = (newText: string) => {
-    const currentContent = text.toString();
-
-    if (newText.length > currentContent.length) {
-      // Text was inserted
-      const insertPos = findInsertPosition(currentContent, newText);
-      const insertedText = newText.slice(insertPos, insertPos + (newText.length - currentContent.length));
-      text.insert(insertPos, insertedText);
-    } else if (newText.length < currentContent.length) {
-      // Text was deleted
-      const deletePos = findDeletePosition(currentContent, newText);
-      const deleteLen = currentContent.length - newText.length;
-      text.delete(deletePos, deleteLen);
-    }
+    // @ts-ignore
+    text.update(newText, UpdateOptions.defaults());
+    document.commit();
+    // Update highlights when text changes
+    // updateHighlightsAfterTextChange(currentContent, newText);
   };
 
-  const findInsertPosition = (oldText: string, newText: string): number => {
-    for (let i = 0; i < Math.min(oldText.length, newText.length); i++) {
-      if (oldText[i] !== newText[i]) {
-        return i;
+  // Function to add highlight
+  const setRemoteHighlight = (start: number, end: number) => {
+    console.log("setRemoteHighlight", start, end);
+    const color = Platform.OS === 'android' ? '#ffeb3b' : '#ff0000';
+    if (start >= end || start < 0 || end > content.length) {
+      setHighlights(null);
+      return
+    };
+
+    const newHighlight: Highlight = {
+      id: `highlight_${Date.now()}_${Math.random()}`,
+      start,
+      end,
+      color,
+    };
+
+    setHighlights(newHighlight);
+  };
+
+  // Function to render text with highlights
+  const renderHighlightedText = () => {
+    if (highlights === null || content.length === 0) {
+      return <Text style={styles.hiddenText}>{content}</Text>;
+    }
+
+    const segments = [];
+    let lastIndex = 0;
+
+    // Sort highlights by start position
+    const sortedHighlights = [highlights];
+
+    sortedHighlights.forEach((highlight) => {
+      // Add text before highlight
+      if (highlight.start > lastIndex) {
+        segments.push({
+          text: content.slice(lastIndex, highlight.start),
+          highlighted: false,
+          color: undefined,
+          key: `text_${lastIndex}_${highlight.start}`,
+        });
       }
+
+      // Add highlighted text
+      segments.push({
+        text: content.slice(highlight.start, highlight.end),
+        highlighted: true,
+        color: highlight.color,
+        key: `highlight_${highlight.id}`,
+      });
+
+      lastIndex = Math.max(lastIndex, highlight.end);
+    });
+
+    // Add remaining text
+    if (lastIndex < content.length) {
+      segments.push({
+        text: content.slice(lastIndex),
+        highlighted: false,
+        color: undefined,
+        key: `text_${lastIndex}_end`,
+      });
     }
-    return oldText.length;
-  };
 
-  const findDeletePosition = (oldText: string, newText: string): number => {
-    for (let i = 0; i < Math.min(oldText.length, newText.length); i++) {
-      if (oldText[i] !== newText[i]) {
-        return i;
-      }
-    }
-    return newText.length;
-  };
-
-  const insertSampleText = () => {
-    const sampleTexts = [
-      'Hello, World!',
-      'This is a collaborative text editor.',
-      'Loro CRDT makes real-time collaboration easy.',
-      'Try editing this text simultaneously with others.',
-      '支持中文输入和编辑。',
-      '这是一个支持版本控制的文本编辑器。',
-    ];
-    const randomText = sampleTexts[Math.floor(Math.random() * sampleTexts.length)];
-    text.insert(cursorPosition, randomText + '\n');
-  };
-
-  const clearDocument = () => {
-    Alert.alert(
-      '清除文档',
-      '确定要清除所有内容吗？',
-      [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '确定',
-          style: 'destructive',
-          onPress: () => {
-            const currentLength = text.length();
-            if (currentLength > 0) {
-              text.delete(0, currentLength);
-            }
-          },
-        },
-      ],
+    return (
+      <Text style={styles.hiddenText}>
+        {segments.map((segment) => (
+          <Text
+            key={segment.key}
+            style={[
+              segment.highlighted && { backgroundColor: segment.color }
+            ]}
+          >
+            {segment.text}
+          </Text>
+        ))}
+      </Text>
     );
-  };
-
-  const exportDocument = () => {
-    const data = document.export();
-    Alert.alert('导出成功', `文档已导出\n大小: ${data.length} 字节\n字符数: ${docSize}`);
-  };
-
-  const simulateCollaboration = () => {
-    setIsCollaborative(!isCollaborative);
-    if (!isCollaborative) {
-      // Simulate remote edits with realistic timing
-      setTimeout(() => {
-        text.insert(0, '[用户A编辑] ');
-      }, 1000);
-      setTimeout(() => {
-        text.insert(text.length(), ' [用户B添加]');
-      }, 2000);
-      setTimeout(() => {
-        text.insert(Math.floor(text.length() / 2), ' [用户C插入] ');
-      }, 3000);
-    }
-  };
-
-  const showHistoryAlert = () => {
-    const historyText = history.length > 0
-      ? history.map((h, i) => `版本 ${i + 1}: "${h.slice(0, 30)}${h.length > 30 ? '...' : ''}"`).join('\n')
-      : '暂无历史记录';
-
-    Alert.alert('编辑历史', historyText);
   };
 
   return (
@@ -159,52 +202,48 @@ function App(): React.JSX.Element {
         </View>
       </View>
 
-      {/* Toolbar */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.toolbarScroll}>
-        <View style={styles.toolbar}>
-          <TouchableOpacity style={styles.toolButton} onPress={insertSampleText}>
-            <Text style={styles.toolButtonText}>插入文本</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.toolButton} onPress={simulateCollaboration}>
-            <Text style={styles.toolButtonText}>
-              {isCollaborative ? '停止协作' : '开始协作'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.toolButton, { backgroundColor: '#FF9800' }]} onPress={() => setShowRichEditor(true)}>
-            <Text style={styles.toolButtonText}>富文本</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.toolButton, { backgroundColor: '#9C27B0' }]} onPress={showHistoryAlert}>
-            <Text style={styles.toolButtonText}>历史</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.toolButton} onPress={exportDocument}>
-            <Text style={styles.toolButtonText}>导出</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.toolButton, styles.clearButton]} onPress={clearDocument}>
-            <Text style={[styles.toolButtonText, styles.clearButtonText]}>清除</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-
       {/* Editor */}
       <View style={styles.editorContainer}>
         <ScrollView style={styles.editorScroll} showsVerticalScrollIndicator={false}>
-          <TextInput
-            ref={textInputRef}
-            style={styles.editor}
-            multiline
-            value={content}
-            onChangeText={handleTextChange}
-            onSelectionChange={(e) => setCursorPosition(e.nativeEvent.selection.start)}
-            placeholder="开始输入你的内容...&#10;&#10;✨ 支持实时协作&#10;📝 自动冲突解决&#10;⏰ 版本历史记录&#10;🔄 离线同步"
-            placeholderTextColor="#999"
-            textAlignVertical="top"
-            scrollEnabled={false}
-          />
+          <View style={styles.textContainer}>
+            {/* Background text with highlights */}
+            {renderHighlightedText()}
+
+            {/* Transparent TextInput overlay */}
+            <TextInput
+              ref={textInputRef}
+              style={[styles.editor, styles.transparentEditor]}
+              multiline
+              value={content}
+              onChangeText={handleTextChange}
+              onSelectionChange={(e) => {
+                const { start, end } = e.nativeEvent.selection;
+                setCursorPosition(start);
+                setSelection({ start, end });
+                const startCursor = text.getCursor(start, Side.Middle)!;
+                const endCursor = text.getCursor(end, Side.Middle)!;
+                const map = new Map<string, LoroValue>();
+                map.set("start", new LoroValue.Binary({
+                  value: startCursor.encode()
+                }));
+                map.set("end", new LoroValue.Binary({
+                  value: endCursor.encode()
+                }));
+                ephemeralStore.set(document.peerId.toString(), {
+                  asLoroValue: () => {
+                    return new LoroValue.Map({
+                      value: map
+                    })
+                  }
+                })
+              }}
+              placeholder="开始输入你的内容...&#10;&#10;✨ 支持实时协作&#10;📝 自动冲突解决&#10;🔄 离线同步&#10;🎨 支持文本高亮"
+              placeholderTextColor="#999"
+              textAlignVertical="top"
+              scrollEnabled={false}
+              selectionColor="#007AFF"
+            />
+          </View>
         </ScrollView>
       </View>
 
@@ -219,36 +258,30 @@ function App(): React.JSX.Element {
           <Text style={styles.statValue}>{cursorPosition}</Text>
         </View>
         <View style={styles.statItem}>
-          <Text style={styles.statLabel}>行数</Text>
-          <Text style={styles.statValue}>{content.split('\n').length}</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>历史版本</Text>
-          <Text style={styles.statValue}>{history.length}</Text>
+          <Text style={styles.statLabel}>选择范围</Text>
+          <Text style={styles.statValue}>
+            {selection.start === selection.end ? '无' : `${selection.start}-${selection.end}`}
+          </Text>
         </View>
       </View>
 
       {/* Info Card */}
       <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>🦜 Loro CRDT 演示</Text>
+        <Text style={styles.infoTitle}>🦜 Loro CRDT 演示 - 支持文本高亮</Text>
         <Text style={styles.infoText}>
-          这是一个基于 Loro CRDT 的协作文本编辑器。支持实时协作、版本控制和离线编辑。
+          这是一个基于 Loro CRDT 的协作文本编辑器，现在支持文本高亮功能。
         </Text>
         <View style={styles.featureList}>
           <Text style={styles.featureItem}>• 🔄 冲突自由的协作编辑</Text>
           <Text style={styles.featureItem}>• 📱 支持离线编辑和同步</Text>
-          <Text style={styles.featureItem}>• ⏰ 完整的版本历史记录</Text>
-          <Text style={styles.featureItem}>• 🎨 富文本格式支持</Text>
+          <Text style={styles.featureItem}>• 🎯 实时光标位置追踪</Text>
+          <Text style={styles.featureItem}>• ⚡ 高性能文本操作</Text>
+          <Text style={styles.featureItem}>• 🎨 智能文本高亮功能</Text>
         </View>
         <Text style={styles.infoNote}>
-          点击"开始协作"来模拟多人协作编辑效果
+          试试选中文本然后点击"高亮选中"按钮，或者使用"演示高亮"来测试功能
         </Text>
       </View>
-
-      {/* Rich Text Editor Modal */}
-      {showRichEditor && (
-        <RichTextEditor onClose={() => setShowRichEditor(false)} />
-      )}
     </SafeAreaView>
   );
 }
@@ -296,35 +329,6 @@ const styles = StyleSheet.create({
     color: '#666',
     fontWeight: '500',
   },
-  toolbarScroll: {
-    backgroundColor: '#ffffff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-  },
-  toolbar: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    gap: 8,
-  },
-  toolButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    marginRight: 8,
-  },
-  toolButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  clearButton: {
-    backgroundColor: '#FF3B30',
-  },
-  clearButtonText: {
-    color: '#ffffff',
-  },
   editorContainer: {
     flex: 1,
     margin: 20,
@@ -342,18 +346,73 @@ const styles = StyleSheet.create({
   editorScroll: {
     flex: 1,
   },
-  editor: {
-    flex: 1,
+  textContainer: {
+    position: 'relative',
+    minHeight: height * 0.4,
+  },
+  hiddenText: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     padding: 20,
     fontSize: 16,
     lineHeight: 24,
     color: '#1a1a1a',
     fontFamily: 'System',
-    minHeight: height * 0.3,
+    minHeight: height * 0.4,
+    zIndex: 1,
+  },
+  editor: {
+    padding: 20,
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#1a1a1a',
+    fontFamily: 'System',
+    minHeight: height * 0.4,
+  },
+  transparentEditor: {
+    position: 'relative',
+    backgroundColor: 'transparent',
+    color: 'rgba(26, 26, 26, 0.01)', // Almost transparent but not completely
+    zIndex: 2,
+  },
+  highlightControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
+  },
+  highlightButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  selectionButton: {
+    backgroundColor: '#2196F3',
+  },
+  clearButton: {
+    backgroundColor: '#FF5722',
+  },
+  highlightButtonText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  disabledText: {
+    color: '#cccccc',
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 20,
     backgroundColor: '#ffffff',
@@ -362,16 +421,28 @@ const styles = StyleSheet.create({
   },
   statItem: {
     alignItems: 'center',
+    flex: 1,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
     marginBottom: 2,
   },
   statValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#1a1a1a',
+  },
+  actionButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  actionButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   infoCard: {
     margin: 20,
