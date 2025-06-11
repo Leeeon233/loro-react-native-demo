@@ -43,7 +43,7 @@ client.connect();
 function App(): React.JSX.Element {
   const [content, setContent] = useState('');
   const [cursorPosition, setCursorPosition] = useState(0);
-  const [isCollaborative, setIsCollaborative] = useState(false);
+  const [isCollaborative, setIsCollaborative] = useState(true);
   const [docSize, setDocSize] = useState(0);
   const [highlights, setHighlights] = useState<Highlight | null>(null);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
@@ -57,8 +57,6 @@ function App(): React.JSX.Element {
     })
     client.on('ephemeral', (msg) => {
       try {
-        console.log("ephemeral", msg.update, base64ToUint8Array(msg.update));
-        if (msg.update.length === 0) return;
         //@ts-ignore
         ephemeralStore.apply(base64ToUint8Array(msg.update));
       } catch (e) {
@@ -87,6 +85,7 @@ function App(): React.JSX.Element {
         onEphemeralEvent: (event) => {
           if (event.by !== EphemeralEventTrigger.Import) return;
           const changeIds = event.added.concat(event.updated);
+          if (changeIds.length === 0) return;
           const remote = changeIds[0];
           const remoteEphemeral = ephemeralStore.get(remote);
           if (!remoteEphemeral) return;
@@ -162,6 +161,29 @@ function App(): React.JSX.Element {
     setHighlights(newHighlight);
   };
 
+  const handleSelectionChange = (e: any) => {
+    const { start, end } = e.nativeEvent.selection;
+    setCursorPosition(start);
+    setSelection({ start, end });
+    const startCursor = text.getCursor(start, Side.Middle)!;
+    const endCursor = text.getCursor(end, Side.Middle)!;
+    const map = new Map<string, LoroValue>();
+    map.set("start", new LoroValue.Binary({
+      value: startCursor.encode()
+    }));
+    map.set("end", new LoroValue.Binary({
+      value: endCursor.encode()
+    }));
+    map.set("userName", new LoroValue.String({ value: Platform.OS })); // Add local user name
+    ephemeralStore.set(document.peerId().toString(), {
+      asLoroValue: () => {
+        return new LoroValue.Map({
+          value: map
+        })
+      }
+    })
+  }
+
   // Function to render text with highlights
   const renderHighlightedText = () => {
     if (highlights === null || content.length === 0) {
@@ -192,7 +214,7 @@ function App(): React.JSX.Element {
                 styles.userNameTag,
                 {
                   color: color, // Use same color as cursor
-                  left: Math.min(currentColumn * 9 + 22, width - 100), // Account for editor padding and prevent overflow
+                  left: currentColumn * 9.6 + 22, // Account for editor padding and prevent overflow
                   top: (currentLine + 1) * 24 + 18, // Position one line below with padding offset
                 }
               ]}
@@ -265,11 +287,11 @@ function App(): React.JSX.Element {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Loro 文本编辑器</Text>
+        <Text style={styles.title}>Loro Text Editor</Text>
         <View style={styles.statusContainer}>
           <View style={[styles.statusDot, { backgroundColor: isCollaborative ? '#4CAF50' : '#757575' }]} />
           <Text style={styles.statusText}>
-            {isCollaborative ? '协作中' : '离线'}
+            {isCollaborative ? 'Collaborating' : 'Offline'}
           </Text>
         </View>
       </View>
@@ -288,29 +310,8 @@ function App(): React.JSX.Element {
               multiline
               value={content}
               onChangeText={handleTextChange}
-              onSelectionChange={(e) => {
-                const { start, end } = e.nativeEvent.selection;
-                setCursorPosition(start);
-                setSelection({ start, end });
-                const startCursor = text.getCursor(start, Side.Middle)!;
-                const endCursor = text.getCursor(end, Side.Middle)!;
-                const map = new Map<string, LoroValue>();
-                map.set("start", new LoroValue.Binary({
-                  value: startCursor.encode()
-                }));
-                map.set("end", new LoroValue.Binary({
-                  value: endCursor.encode()
-                }));
-                map.set("userName", new LoroValue.String({ value: Platform.OS })); // Add local user name
-                ephemeralStore.set(document.peerId().toString(), {
-                  asLoroValue: () => {
-                    return new LoroValue.Map({
-                      value: map
-                    })
-                  }
-                })
-              }}
-              placeholder="开始输入你的内容...&#10;&#10;✨ 支持实时协作&#10;📝 自动冲突解决&#10;🔄 离线同步&#10;🎨 支持文本高亮"
+              onSelectionChange={(e) => { handleSelectionChange(e) }}
+              placeholder="Start typing your content...&#10;✨ Real-time collaboration&#10;📝 Automatic conflict resolution&#10;🔄 Offline sync&#10;"
               placeholderTextColor="#999"
               textAlignVertical="top"
               scrollEnabled={false}
@@ -323,37 +324,32 @@ function App(): React.JSX.Element {
       {/* Footer Stats */}
       <View style={styles.footer}>
         <View style={styles.statItem}>
-          <Text style={styles.statLabel}>字符数</Text>
+          <Text style={styles.statLabel}>Characters</Text>
           <Text style={styles.statValue}>{docSize}</Text>
         </View>
         <View style={styles.statItem}>
-          <Text style={styles.statLabel}>光标位置</Text>
+          <Text style={styles.statLabel}>Cursor Position</Text>
           <Text style={styles.statValue}>{cursorPosition}</Text>
         </View>
         <View style={styles.statItem}>
-          <Text style={styles.statLabel}>选择范围</Text>
+          <Text style={styles.statLabel}>Selection Range</Text>
           <Text style={styles.statValue}>
-            {selection.start === selection.end ? '无' : `${selection.start}-${selection.end}`}
+            {selection.start === selection.end ? 'None' : `${selection.start}-${selection.end}`}
           </Text>
         </View>
       </View>
 
       {/* Info Card */}
       <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>🦜 Loro CRDT 演示 - 支持文本高亮</Text>
+        <Text style={styles.infoTitle}>🦜 Loro CRDT Demo</Text>
         <Text style={styles.infoText}>
-          这是一个基于 Loro CRDT 的协作文本编辑器，现在支持文本高亮功能。
+          This is a collaborative text editor based on loro-react-native, now supporting text highlighting features.
         </Text>
         <View style={styles.featureList}>
-          <Text style={styles.featureItem}>• 🔄 冲突自由的协作编辑</Text>
-          <Text style={styles.featureItem}>• 📱 支持离线编辑和同步</Text>
-          <Text style={styles.featureItem}>• 🎯 实时光标位置追踪</Text>
-          <Text style={styles.featureItem}>• ⚡ 高性能文本操作</Text>
-          <Text style={styles.featureItem}>• 🎨 智能文本高亮功能</Text>
+          <Text style={styles.featureItem}>• 🔄 Conflict-free collaborative editing</Text>
+          <Text style={styles.featureItem}>• 📱 Support offline editing and sync</Text>
+          <Text style={styles.featureItem}>• 🎯 Real-time cursor position tracking</Text>
         </View>
-        <Text style={styles.infoNote}>
-          试试选中文本然后点击"高亮选中"按钮，或者使用"演示高亮"来测试功能
-        </Text>
       </View>
     </SafeAreaView>
   );
@@ -432,7 +428,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: '#1a1a1a',
-    fontFamily: 'System',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     minHeight: height * 0.4,
     zIndex: 1,
   },
@@ -441,7 +437,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: '#1a1a1a',
-    fontFamily: 'System',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     minHeight: height * 0.4,
   },
   transparentEditor: {
