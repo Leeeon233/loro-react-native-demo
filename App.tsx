@@ -19,7 +19,7 @@ import {
   TouchableOpacity,
   Platform,
 } from 'react-native';
-import { Cursor, EphemeralEventTrigger, EphemeralStore, EventTriggerKind, LoroDoc, LoroValue, loroValueToJsValue, Side, UpdateOptions } from 'loro-react-native';
+import { Cursor, EphemeralEventTrigger, EphemeralStore, EventTriggerKind, LoroDoc, LoroValue, Side, UpdateOptions } from 'loro-react-native';
 import WebSocketClient, { base64ToUint8Array } from './websocket-client';
 
 const { width, height } = Dimensions.get('window');
@@ -74,32 +74,24 @@ function App(): React.JSX.Element {
       client.sendDoc("demo", new Uint8Array(update));
     })
 
-    const ephemeralUpdateSub = ephemeralStore.subscribeLocalUpdate({
-      onEphemeralUpdate: (update) => {
-        client.sendEphemeral("demo", new Uint8Array(update))
-      }
+    const ephemeralUpdateSub = ephemeralStore.subscribeLocalUpdate((update) => {
+      client.sendEphemeral("demo", new Uint8Array(update))
     })
 
-    const ephemeralSub = ephemeralStore.subscribe(
-      {
-        onEphemeralEvent: (event) => {
-          if (event.by !== EphemeralEventTrigger.Import) return;
-          const changeIds = event.added.concat(event.updated);
-          if (changeIds.length === 0) return;
-          const remote = changeIds[0];
-          const remoteEphemeral = ephemeralStore.get(remote);
-          if (!remoteEphemeral) return;
-          const remoteValue = loroValueToJsValue(remoteEphemeral) as any
-          if (!remoteValue) return;
-          const startCursor = Cursor.decode(remoteValue["start"])
-          const endCursor = Cursor.decode(remoteValue["end"])
-          const userName = remoteValue["userName"] || `User-${remote.slice(0, 6)}`; // Extract userName or generate default
-          const start = document.getCursorPos(startCursor).current.pos;
-          const end = document.getCursorPos(endCursor).current.pos;
-          setRemoteHighlight(start, end, userName)
-        }
-      }
-    );
+    const ephemeralSub = ephemeralStore.subscribe((event) => {
+      if (event.by !== EphemeralEventTrigger.Import) return;
+      const changeIds = event.added.concat(event.updated);
+      if (changeIds.length === 0) return;
+      const remote = changeIds[0];
+      const remoteValue = ephemeralStore.get(remote) as any;
+      if (!remoteValue) return;
+      const startCursor = Cursor.decode(remoteValue["start"])
+      const endCursor = Cursor.decode(remoteValue["end"])
+      const userName = remoteValue["userName"] || `User-${remote.slice(0, 6)}`; // Extract userName or generate default
+      const start = document.getCursorPos(startCursor).current.pos;
+      const end = document.getCursorPos(endCursor).current.pos;
+      setRemoteHighlight(start, end, userName)
+    });
 
     return () => {
       unsubscribe.unsubscribe();
@@ -167,21 +159,11 @@ function App(): React.JSX.Element {
     setSelection({ start, end });
     const startCursor = text.getCursor(start, Side.Middle)!;
     const endCursor = text.getCursor(end, Side.Middle)!;
-    const map = new Map<string, LoroValue>();
-    map.set("start", new LoroValue.Binary({
-      value: startCursor.encode()
-    }));
-    map.set("end", new LoroValue.Binary({
-      value: endCursor.encode()
-    }));
-    map.set("userName", new LoroValue.String({ value: Platform.OS })); // Add local user name
     ephemeralStore.set(document.peerId().toString(), {
-      asLoroValue: () => {
-        return new LoroValue.Map({
-          value: map
-        })
-      }
-    })
+      start: startCursor.encode(),
+      end: endCursor.encode(),
+      userName: Platform.OS
+    } as any);
   }
 
   // Function to render text with highlights

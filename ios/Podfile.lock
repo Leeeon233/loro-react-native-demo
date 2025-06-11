@@ -8,7 +8,7 @@ PODS:
   - hermes-engine (0.79.3):
     - hermes-engine/Pre-built (= 0.79.3)
   - hermes-engine/Pre-built (0.79.3)
-  - loro-react-native (1.5.0-alpha.5):
+  - loro-react-native (1.5.0):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1917,7 +1917,7 @@ SPEC CHECKSUMS:
   fmt: a40bb5bd0294ea969aaaba240a927bd33d878cdd
   glog: 5683914934d5b6e4240e497e0f4a3b42d1854183
   hermes-engine: 94ed01537bdeccaab1adbf94b040d115d6fa1a7f
-  loro-react-native: 7f3fb121cd78c0016a99617d6bedb08f6c6f39c9
+  loro-react-native: e3672aed8ab1965202c6cfb91441421afa202281
   RCT-Folly: 36fe2295e44b10d831836cc0d1daec5f8abcf809
   RCTDeprecation: c3e3f5b4ea83e7ff3bc86ce09e2a54b7affd687d
   RCTRequired: ee438439880dffc9425930d1dd1a3c883ee6879c

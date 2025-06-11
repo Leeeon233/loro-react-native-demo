@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "eventemitter3": "^5.0.1",
-    "loro-react-native": "1.5.0-alpha.5",
+    "loro-react-native": "1.5.0",
     "react": "19.0.0",
     "react-native": "0.79.3",
     "ws": "^8.14.2"
